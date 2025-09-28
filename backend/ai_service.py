@@ -4,7 +4,8 @@ import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from google import genai
+from google.genai import types
 
 # Load environment variables
 load_dotenv()
@@ -14,17 +15,16 @@ class AIRecommendationService:
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
         if not self.gemini_api_key:
             raise ValueError("GEMINI_API_KEY environment variable is required")
+        self.client = genai.Client(api_key=self.gemini_api_key)
             
     async def generate_recommendations(self, user_data: Dict) -> List[Dict]:
         """
         Generate AI recommendations based on user vital signs and therapy data
         """
         try:
-            # Create chat instance with Gemini
-            chat = LlmChat(
-                api_key=self.gemini_api_key,
-                session_id=f"biopatch-{user_data.get('user_id', 'default')}-{datetime.now().strftime('%Y%m%d')}",
-                system_message="""You are a medical AI assistant specialized in pain management and physiotherapy for the BioPatch smart pain monitoring system. 
+            # Prepare user data message
+            user_message_text = f"""
+You are a medical AI assistant specialized in pain management and physiotherapy for the BioPatch smart pain monitoring system. 
 
 Analyze the provided patient data and generate 3-4 personalized recommendations in Vietnamese. Focus on:
 1. Therapy adjustments (TENS/Microcurrent settings)
@@ -33,9 +33,9 @@ Analyze the provided patient data and generate 3-4 personalized recommendations 
 4. Safety alerts if needed
 
 Return JSON format with this exact structure:
-{
+{{
   "recommendations": [
-    {
+    {{
       "id": 1,
       "type": "therapy|lifestyle|exercise|safety",
       "priority": "high|medium|low", 
@@ -44,17 +44,14 @@ Return JSON format with this exact structure:
       "actionType": "therapy_setting|exercise|guide|article",
       "actionText": "Vietnamese action button text",
       "rationale": "Why this recommendation is important"
-    }
+    }}
   ],
   "summary": "Overall health assessment in Vietnamese",
   "alerts": ["Any safety concerns in Vietnamese"]
-}
+}}
 
-Base recommendations on EMG levels, heart rate variability, temperature readings, and previous therapy effectiveness."""
-            ).with_model("gemini", "gemini-2.5-pro")
-            
-            # Prepare user data message
-            user_message_text = f"""
+Base recommendations on EMG levels, heart rate variability, temperature readings, and previous therapy effectiveness.
+
 Phân tích dữ liệu bệnh nhân BioPatch:
 
 THÔNG TIN BỆNH NHÂN:
@@ -86,13 +83,15 @@ XU HƯỚNG:
 Vui lòng tạo khuyến nghị cá nhân hóa để cải thiện tình trạng phục hồi.
 """
             
-            user_message = UserMessage(text=user_message_text)
-            response = await chat.send_message(user_message)
+            response = self.client.models.generate_content(
+                model="gemini-2.5-pro",
+                contents=user_message_text
+            )
             
             # Parse AI response
             try:
                 # Clean the response to extract JSON
-                response_text = response.strip()
+                response_text = response.text.strip() if response.text else ""
                 if response_text.startswith('```json'):
                     response_text = response_text[7:]
                 if response_text.endswith('```'):
